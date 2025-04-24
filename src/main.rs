@@ -112,7 +112,7 @@ fn jack_analyzer(path_str: &str) -> Result<()> {
         .iter()
         .try_for_each(|jack_file| -> Result<()> {
             let mut tokenizer = JackTokenizer::new(&jack_file.to_string_lossy().to_string());
-            while tokenizer.has_more_lines()? {
+            while tokenizer.has_more_tokens()? {
                 tokenizer.advance()?;
 
                 match tokenizer.token_type()? {

@@ -62,7 +62,7 @@ pub enum KeyWord {
 
 pub struct JackTokenizer {
     jack_code: Box<dyn BufRead>,
-    current_command: Option<String>,
+    current_token: Option<String>,
 }
 
 impl JackTokenizer {
@@ -71,24 +71,24 @@ impl JackTokenizer {
             jack_code: Box::new(BufReader::new(
                 File::open(Path::new(jack_file_path)).unwrap(),
             )),
-            current_command: None,
+            current_token: None,
         }
     }
 
-    pub fn has_more_lines(&mut self) -> Result<bool> {
+    pub fn has_more_tokens(&mut self) -> Result<bool> {
         Ok(self.jack_code.fill_buf()?.iter().next().is_some())
     }
 
     pub fn advance(&mut self) -> Result<()> {
         // //で始まるコメント行と空白を無視して次の行を読み込む
-        while self.has_more_lines()? {
-            self.current_command = match self.jack_code.as_mut().lines().next().unwrap() {
+        while self.has_more_tokens()? {
+            self.current_token = match self.jack_code.as_mut().lines().next().unwrap() {
                 Ok(line) if line.chars().all(char::is_whitespace) => None, //空白の場合は無視
                 Ok(line) if line.trim().starts_with(COMMENT_OUT_TOKEN) => None, //コメント行の場合は無視
                 Ok(line) => Some(line.trim().to_string()),
-                Err(_) => None,
+                Err(e) => panic!("tokenizer advance error: {:?}", e),
             };
-            if self.current_command.is_some() {
+            if self.current_token.is_some() {
                 break;
             }
         }
@@ -96,27 +96,6 @@ impl JackTokenizer {
     }
 
     pub fn token_type(&self) -> Result<TokenType> {
-        let cmd: String = self
-            .current_command
-            .clone()
-            .unwrap()
-            .chars()
-            .filter(|c| !c.is_whitespace())
-            .collect();
-
-        match cmd.chars().next() {
-            Some(_c @ ('a'..'z' | 'A'..'Z')) => {
-                while matches!(
-                    cmd.chars().next(),
-                    Some(_c @ ('_' | 'a'..'z' | 'A'..'Z' | '0'..'9'))
-                ) {
-                    todo!()
-                }
-            }
-            None => todo!(),
-            _ => todo!(),
-        }
-
         todo!()
     }
 
@@ -141,12 +120,98 @@ impl JackTokenizer {
     }
 }
 
+fn parse_tokens(input: &str) -> Result<Vec<String>> {
+    let mut tokens: Vec<String> = Vec::new();
+    // todo to const
+    let symbols = vec!['=', '(', ')', '<', '>', '{', '}', ';'];
+
+    // ignore comment line
+    let _input = input
+        .lines()
+        .filter(|line| !line.trim().starts_with(COMMENT_OUT_TOKEN))
+        .collect::<String>();
+    let mut input = _input.as_str();
+
+    while input.chars().next().is_some() {
+        match input.chars().next() {
+            // whitespace
+            Some(c) if c.is_whitespace() => {
+                let mut chars = input.chars();
+                chars.next();
+                input = chars.as_str();
+            }
+            // keyword,identifer
+            Some(_c @ ('"' | 'a'..'z' | 'A'..'Z')) => {
+                let mut chars = input.chars();
+                let mut token = chars.next().unwrap().to_string();
+                input = chars.as_str();
+                while matches!(
+                    input.chars().next(),
+                    Some(_c @ ('"' | 'a'..'z' | 'A'..'Z' | '0'..='9' | '_'))
+                ) {
+                    let mut chars = input.chars();
+                    token += &chars.next().unwrap().to_string();
+                    input = chars.as_str();
+                }
+                tokens.push(token);
+            }
+            // keyword,identifer
+            Some(c) if symbols.iter().any(|symbol| c == *symbol) => {
+                let mut chars = input.chars();
+                let token = chars.next().unwrap().to_string();
+                input = chars.as_str();
+                tokens.push(token);
+            }
+            Some(_c @ ('0'..='9')) => {
+                let mut chars = input.chars();
+                let mut token = chars.next().unwrap().to_string();
+                input = chars.as_str();
+                while matches!(input.chars().next(), Some(_c @ ('0'..='9'))) {
+                    let mut chars = input.chars();
+                    token += &chars.next().unwrap().to_string();
+                    input = chars.as_str();
+                }
+                tokens.push(token);
+            }
+            None => (),
+            c => panic!("un supported token: {:?}", c),
+        }
+    }
+
+    Ok(tokens)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn it_works() {
-        assert!(true)
+    fn test_parse_token() {
+        let input = r#"if (x < 0) {
+    // comment
+    let sign = "negative";
+    let sign_2 = "positive";
+}"#;
+        let actual = vec![
+            "if",
+            "(",
+            "x",
+            "<",
+            "0",
+            ")",
+            "{",
+            "let",
+            "sign",
+            "=",
+            "\"negative\"",
+            ";",
+            "let",
+            "sign_2",
+            "=",
+            "\"positive\"",
+            ";",
+            "}",
+        ];
+        assert_eq!(parse_tokens(input).unwrap(), actual);
     }
 }
