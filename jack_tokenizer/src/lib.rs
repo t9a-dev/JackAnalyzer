@@ -1,33 +1,35 @@
 use anyhow::Result;
-use std::{
-    fs::File,
-    io::{BufRead, BufReader},
-    path::Path,
-};
+use std::io::{BufReader, Read};
 
 const COMMENT_OUT_TOKEN: &str = "//";
-// const KEYWORD_CLASS: &str = "class";
-// const KEYWORD_CONSTRUCTOR: &str = "constructor";
-// const KEYWORD_FUNCTION: &str = "function";
-// const KEYWORD_METHOD: &str = "method";
-// const KEYWORD_FIELD: &str = "field";
-// const KEYWORD_STATIC: &str = "static";
-// const KEYWORD_VAR: &str = "var";
-// const KEYWORD_INT: &str = "int";
-// const KEYWORD_CHAR: &str = "char";
-// const KEYWORD_BOOLEAN: &str = "boolean";
-// const KEYWORD_VOID: &str = "void";
-// const KEYWORD_TRUE: &str = "true";
-// const KEYWORD_FALSE: &str = "false";
-// const KEYWORD_NULL: &str = "null";
-// const KEYWORD_THIS: &str = "this";
-// const KEYWORD_LET: &str = "let";
-// const KEYWORD_DO: &str = "do";
-// const KEYWORD_IF: &str = "if";
-// const KEYWORD_ELSE: &str = "else";
-// const KEYWORD_WHILE: &str = "while";
-// const KEYWORD_RETURN: &str = "return";
+const KEYWORDS: [&str; 21] = [
+    "class",
+    "constructor",
+    "function",
+    "method",
+    "field",
+    "static",
+    "var",
+    "int",
+    "char",
+    "boolean",
+    "void",
+    "true",
+    "false",
+    "null",
+    "this",
+    "let",
+    "do",
+    "if",
+    "else",
+    "while",
+    "return",
+];
+const SYMBOLS: [char; 19] = [
+    '{', '}', '(', ')', '[', ']', '.', ',', ';', '+', '-', '*', '/', '&', '|', '<', '>', '=', '~',
+];
 
+#[derive(Debug,PartialEq)]
 pub enum TokenType {
     KeyWord,
     Symbol,
@@ -36,6 +38,7 @@ pub enum TokenType {
     StringConst,
 }
 
+#[derive(Debug,PartialEq)]
 pub enum KeyWord {
     Class,
     Method,
@@ -61,42 +64,56 @@ pub enum KeyWord {
 }
 
 pub struct JackTokenizer {
-    jack_code: Box<dyn BufRead>,
+    tokens: Vec<String>,
     current_token: Option<String>,
 }
 
 impl JackTokenizer {
-    pub fn new(jack_file_path: &str) -> Self {
+    pub fn new<T: Read>(jack_file: T) -> Self {
+        let mut buf = String::new();
+        let mut jack_file = BufReader::new(jack_file);
+        jack_file.read_to_string(&mut buf).unwrap();
+
         Self {
-            jack_code: Box::new(BufReader::new(
-                File::open(Path::new(jack_file_path)).unwrap(),
-            )),
+            tokens: parse_tokens(&buf).unwrap(),
             current_token: None,
         }
     }
 
     pub fn has_more_tokens(&mut self) -> Result<bool> {
-        Ok(self.jack_code.fill_buf()?.iter().next().is_some())
+        Ok(self.tokens.iter().next().is_some())
     }
 
     pub fn advance(&mut self) -> Result<()> {
-        // //で始まるコメント行と空白を無視して次の行を読み込む
-        while self.has_more_tokens()? {
-            self.current_token = match self.jack_code.as_mut().lines().next().unwrap() {
-                Ok(line) if line.chars().all(char::is_whitespace) => None, //空白の場合は無視
-                Ok(line) if line.trim().starts_with(COMMENT_OUT_TOKEN) => None, //コメント行の場合は無視
-                Ok(line) => Some(line.trim().to_string()),
-                Err(e) => panic!("tokenizer advance error: {:?}", e),
-            };
-            if self.current_token.is_some() {
-                break;
-            }
+        if self.has_more_tokens()? {
+            self.current_token = self.tokens.iter().next().cloned();
+            let mut tokens = self.tokens.clone().into_iter();
+            tokens.next();
+            self.tokens = tokens.collect();
         }
         Ok(())
     }
 
     pub fn token_type(&self) -> Result<TokenType> {
-        todo!()
+        match &self.current_token {
+           Some(t ) if KEYWORDS.iter().any(|k| *k == t) => {
+                Ok(TokenType::KeyWord)
+           }, 
+           Some(t) if SYMBOLS.iter().any(|s| *s == t.chars().next().unwrap()) => {
+                Ok(TokenType::Symbol)
+           },
+           Some(t ) if matches!(t.chars().next().unwrap(), _c @('0'..='9')) => {
+                Ok(TokenType::IntConst)
+           }
+           Some(t ) if t.chars().next().unwrap() == '"' => {
+                Ok(TokenType::StringConst)
+           },
+           Some(t) if matches!(t.chars().next().unwrap(), _c @('_' | 'a'..'z' | 'A'..'Z')) => {
+                Ok(TokenType::Identifier)
+           }
+           None => panic!("curret token is empty"),
+           t =>  panic!("un supported token type: {:?}",t),
+        }
     }
 
     pub fn keyword(&self) -> Result<KeyWord> {
@@ -122,15 +139,12 @@ impl JackTokenizer {
 
 fn parse_tokens(input: &str) -> Result<Vec<String>> {
     let mut tokens: Vec<String> = Vec::new();
-    // todo to const
-    let symbols = vec!['=', '(', ')', '<', '>', '{', '}', ';'];
 
-    // ignore comment line
-    let _input = input
+    let ignore_comment_input = input
         .lines()
         .filter(|line| !line.trim().starts_with(COMMENT_OUT_TOKEN))
         .collect::<String>();
-    let mut input = _input.as_str();
+    let mut input = ignore_comment_input.as_str();
 
     while input.chars().next().is_some() {
         match input.chars().next() {
@@ -141,7 +155,7 @@ fn parse_tokens(input: &str) -> Result<Vec<String>> {
                 input = chars.as_str();
             }
             // keyword,identifer
-            Some(_c @ ('"' | 'a'..'z' | 'A'..'Z')) => {
+            Some(_c @ ('_' | '"' | 'a'..'z' | 'A'..'Z')) => {
                 let mut chars = input.chars();
                 let mut token = chars.next().unwrap().to_string();
                 input = chars.as_str();
@@ -155,13 +169,14 @@ fn parse_tokens(input: &str) -> Result<Vec<String>> {
                 }
                 tokens.push(token);
             }
-            // keyword,identifer
-            Some(c) if symbols.iter().any(|symbol| c == *symbol) => {
+            // symbol
+            Some(c) if SYMBOLS.iter().any(|symbol| c == *symbol) => {
                 let mut chars = input.chars();
                 let token = chars.next().unwrap().to_string();
                 input = chars.as_str();
                 tokens.push(token);
             }
+            // integer
             Some(_c @ ('0'..='9')) => {
                 let mut chars = input.chars();
                 let mut token = chars.next().unwrap().to_string();
@@ -213,5 +228,31 @@ mod tests {
             "}",
         ];
         assert_eq!(parse_tokens(input).unwrap(), actual);
+    }
+
+    #[test]
+    fn test_jack_tokenizer() -> Result<()> {
+        let file_content = std::io::Cursor::new(r#"if (x < 0) {
+    // comment
+    let sign = "negative";
+    let sign_2 = "positive";
+}"#.as_bytes());
+        let mut tokenizer = JackTokenizer::new(file_content);
+
+        assert_eq!(tokenizer.current_token.clone(), None);
+
+        tokenizer.advance()?;
+        assert_eq!(tokenizer.current_token.clone().unwrap(), "if".to_string());
+        assert_eq!(tokenizer.token_type()?,TokenType::KeyWord);
+
+        tokenizer.advance()?;
+        assert_eq!(tokenizer.current_token.clone().unwrap(), "(".to_string());
+        assert_eq!(tokenizer.token_type()?,TokenType::Symbol);
+
+        tokenizer.advance()?;
+        assert_eq!(tokenizer.current_token.clone().unwrap(), "x".to_string());
+        assert_eq!(tokenizer.token_type()?,TokenType::Identifier);
+
+        Ok(())
     }
 }
