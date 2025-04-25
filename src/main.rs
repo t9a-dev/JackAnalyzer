@@ -1,7 +1,5 @@
 use std::{
-    fs::File,
-    io::Write,
-    path::{Path, PathBuf},
+    fs::File, io::Write, path::{Path, PathBuf}, sync::{Arc, Mutex}
 };
 
 use anyhow::{anyhow, Result};
@@ -10,17 +8,17 @@ use jack_tokenizer::JackTokenizer;
 const JACK_FILE_EXTENSION: &str = "jack";
 const OUTPUT_FILE_EXTENSION: &str = "xml";
 
-struct TokenizedXmlWriter<'a> {
-    writer: &'a mut dyn Write,
+struct TokenizedXmlWriter {
+    writer: Arc<Mutex<dyn Write>>,
 }
 
-impl<'a> TokenizedXmlWriter<'a> {
-    pub fn new(writer: &'a mut dyn Write) -> Self {
+impl TokenizedXmlWriter {
+    pub fn new(writer: Arc<Mutex<dyn Write>>) -> Self {
         Self { writer: writer }
     }
 
     pub fn write_xml(&mut self, tokenizer: &mut JackTokenizer) -> Result<()> {
-        self.write_start_xml_tag("tokens")?;
+        self.write(&format!("<tokens>\n"))?;
         while tokenizer.has_more_tokens()? {
             tokenizer.advance()?;
 
@@ -57,28 +55,18 @@ impl<'a> TokenizedXmlWriter<'a> {
                 }
             }
         }
-        self.write_end_xml_tag("tokens")?;
+        self.write(&format!("</tokens>"))?;
         Ok(())
     }
 
     fn write_xml_tag(&mut self, tag_name: &str, content: &str) -> Result<()> {
-        self.write_start_xml_tag(tag_name)?;
-        self.write(&format!(" {} \n", content))?;
-        self.write_end_xml_tag(tag_name)?;
+        self.write(&format!("<{tag_name}> {content} </{tag_name}>\n"))?;
         Ok(())
     }
 
-    fn write_start_xml_tag(&mut self, tag_name: &str) -> Result<()> {
-        self.write(&format!("<{}>\n", tag_name))
-    }
-
-    fn write_end_xml_tag(&mut self, tag_name: &str) -> Result<()> {
-        self.write(&format!("</{}>", tag_name))
-    }
-
     fn write(&mut self, content: &str) -> Result<()> {
-        self.writer.write(content.as_bytes())?;
-        self.writer.flush()?;
+        self.writer.lock().unwrap().write(content.as_bytes())?;
+        self.writer.lock().unwrap().flush()?;
         Ok(())
     }
 }
@@ -147,8 +135,8 @@ fn jack_analyzer(path_str: &str) -> Result<()> {
         .unwrap()
         .join(format!("{}T.{}", output_file_name, OUTPUT_FILE_EXTENSION));
 
-    let mut output_file = File::create(&output_file_path)?;
-    let mut tokenized_xml = TokenizedXmlWriter::new(&mut output_file);
+    let output_file = Arc::new(Mutex::new(File::create(&output_file_path)?));
+    let mut tokenized_xml = TokenizedXmlWriter::new(output_file);
     analyze_target_paths
         .iter()
         .try_for_each(|jack_file| -> Result<()> {
@@ -162,6 +150,7 @@ fn jack_analyzer(path_str: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use pretty_assertions::assert_eq;
     use std::{
         fs::{self, File},
         io::Cursor,
@@ -181,6 +170,10 @@ mod tests {
         let file_path = Path::new(test_dir).join(&test_file_name);
         File::create(&file_path)?;
         Ok(file_path.to_string_lossy().to_string())
+    } 
+
+    fn normalize(s: &str) -> String {
+        s.lines().map(str::trim).collect::<Vec<_>>().join("")
     }
 
     #[test]
@@ -209,15 +202,30 @@ mod tests {
     // comment
     let quit = "yes";
 }"#;
-        let mut expect_buf = Cursor::new(Vec::new());
+        let expect_buf = Arc::new(Mutex::new(Cursor::new(Vec::new())));
         let mut tokenizer = JackTokenizer::new(Cursor::new(jack_code.as_bytes()));
-        let mut tokenized_xml_writer = TokenizedXmlWriter::new(&mut expect_buf);
+        let mut tokenized_xml_writer = TokenizedXmlWriter::new( expect_buf.clone());
 
         tokenized_xml_writer.write_xml(&mut tokenizer)?;
-        let expect = String::from_utf8_lossy(&expect_buf.into_inner()).to_string();
-        let actual = "";
+        let expect = String::from_utf8_lossy(expect_buf.lock().unwrap().get_ref()).to_string();
+        let actual = "<tokens>
+        <keyword> if </keyword>
+        <symbol> ( </symbol>
+        <identifer> x </identifer>
+        <symbol> &lt; </symbol>
+        <integerConstant> 0 </integerConstant>
+        <symbol> ) </symbol>
+        <symbol> { </symbol>
+        <keyword> let </keyword>
+        <identifier> quit </identifier>
+        <symbol> = </symbol>
+        <stringConstant> yes </stringConstant>
+        <symbol> ; </symbol>
+        <symbol> } </symbol>
+        </tokens>
+        ";
 
-        assert_eq!(&expect, actual);
+        assert_eq!(normalize(&expect), normalize(actual));
 
         Ok(())
     }
