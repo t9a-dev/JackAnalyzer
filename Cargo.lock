@@ -69,6 +69,8 @@ name = "jack_tokenizer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "strum",
+ "strum_macros",
 ]
 
 [[package]]

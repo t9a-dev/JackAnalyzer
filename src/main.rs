@@ -10,34 +10,75 @@ use jack_tokenizer::JackTokenizer;
 const JACK_FILE_EXTENSION: &str = "jack";
 const OUTPUT_FILE_EXTENSION: &str = "xml";
 
-struct TokenizedXml {
-    file: Box<dyn Write>,
+struct TokenizedXmlWriter<'a> {
+    writer: &'a mut dyn Write,
 }
 
-impl TokenizedXml {
-    pub fn new(file_path: &str) -> Self {
-        Self {
-            file: Box::new(File::create(file_path).unwrap()),
-        }
+impl<'a> TokenizedXmlWriter<'a> {
+    pub fn new(writer: &'a mut dyn Write) -> Self {
+        Self { writer: writer }
     }
 
-    pub fn write_xml(&mut self, tag_name: &str, content: &str) -> Result<()> {
+    pub fn write_xml(&mut self, tokenizer: &mut JackTokenizer) -> Result<()> {
+        self.write_start_xml_tag("tokens")?;
+        while tokenizer.has_more_tokens()? {
+            tokenizer.advance()?;
+
+            match tokenizer.token_type()? {
+                jack_tokenizer::TokenType::KeyWord => {
+                    self.write_xml_tag(
+                        &tokenizer.token_type()?.as_ref().to_lowercase(),
+                        &tokenizer.keyword()?.as_ref().to_lowercase(),
+                    )?;
+                }
+                jack_tokenizer::TokenType::Symbol => {
+                    self.write_xml_tag(
+                        &tokenizer.token_type()?.as_ref().to_lowercase(),
+                        &tokenizer.symbol()?,
+                    )?;
+                }
+                jack_tokenizer::TokenType::Identifier => {
+                    self.write_xml_tag(
+                        &tokenizer.token_type()?.as_ref().to_lowercase(),
+                        &tokenizer.identifer()?,
+                    )?;
+                }
+                jack_tokenizer::TokenType::IntConst => {
+                    self.write_xml_tag(
+                        &tokenizer.token_type()?.as_ref().to_lowercase(),
+                        &tokenizer.int_val()?.to_string(),
+                    )?;
+                }
+                jack_tokenizer::TokenType::StringConst => {
+                    self.write_xml_tag(
+                        &tokenizer.token_type()?.as_ref().to_lowercase(),
+                        &tokenizer.string_val()?.to_string(),
+                    )?;
+                }
+            }
+        }
+        self.write_end_xml_tag("tokens")?;
+        Ok(())
+    }
+
+    fn write_xml_tag(&mut self, tag_name: &str, content: &str) -> Result<()> {
         self.write_start_xml_tag(tag_name)?;
         self.write(&format!(" {} \n", content))?;
         self.write_end_xml_tag(tag_name)?;
         Ok(())
     }
 
-    pub fn write_start_xml_tag(&mut self, tag_name: &str) -> Result<()> {
+    fn write_start_xml_tag(&mut self, tag_name: &str) -> Result<()> {
         self.write(&format!("<{}>\n", tag_name))
     }
 
-    pub fn write_end_xml_tag(&mut self, tag_name: &str) -> Result<()> {
+    fn write_end_xml_tag(&mut self, tag_name: &str) -> Result<()> {
         self.write(&format!("</{}>", tag_name))
     }
 
     fn write(&mut self, content: &str) -> Result<()> {
-        self.file.write(content.as_bytes())?;
+        self.writer.write(content.as_bytes())?;
+        self.writer.flush()?;
         Ok(())
     }
 }
@@ -106,67 +147,25 @@ fn jack_analyzer(path_str: &str) -> Result<()> {
         .unwrap()
         .join(format!("{}T.{}", output_file_name, OUTPUT_FILE_EXTENSION));
 
-    let mut tokenized_xml = TokenizedXml::new(&output_file_path.to_string_lossy().to_string());
-    tokenized_xml.write_start_xml_tag("tokens")?;
+    let mut output_file = File::create(&output_file_path)?;
+    let mut tokenized_xml = TokenizedXmlWriter::new(&mut output_file);
     analyze_target_paths
         .iter()
         .try_for_each(|jack_file| -> Result<()> {
             let mut tokenizer = JackTokenizer::new(File::open(jack_file)?);
-            while tokenizer.has_more_tokens()? {
-                tokenizer.advance()?;
-
-                match tokenizer.token_type()? {
-                    jack_tokenizer::TokenType::KeyWord => match tokenizer.keyword()? {
-                        jack_tokenizer::KeyWord::Class => todo!(),
-                        jack_tokenizer::KeyWord::Method => todo!(),
-                        jack_tokenizer::KeyWord::Function => todo!(),
-                        jack_tokenizer::KeyWord::Constructor => todo!(),
-                        jack_tokenizer::KeyWord::Int => todo!(),
-                        jack_tokenizer::KeyWord::Boolean => todo!(),
-                        jack_tokenizer::KeyWord::Char => todo!(),
-                        jack_tokenizer::KeyWord::Void => todo!(),
-                        jack_tokenizer::KeyWord::Var => todo!(),
-                        jack_tokenizer::KeyWord::Static => todo!(),
-                        jack_tokenizer::KeyWord::Field => todo!(),
-                        jack_tokenizer::KeyWord::Let => todo!(),
-                        jack_tokenizer::KeyWord::Do => todo!(),
-                        jack_tokenizer::KeyWord::If => todo!(),
-                        jack_tokenizer::KeyWord::Else => todo!(),
-                        jack_tokenizer::KeyWord::While => todo!(),
-                        jack_tokenizer::KeyWord::Return => todo!(),
-                        jack_tokenizer::KeyWord::True => todo!(),
-                        jack_tokenizer::KeyWord::False => todo!(),
-                        jack_tokenizer::KeyWord::Null => todo!(),
-                        jack_tokenizer::KeyWord::This => todo!(),
-                    },
-                    jack_tokenizer::TokenType::Symbol => {
-                        tokenizer.symbol()?;
-                        todo!()
-                    }
-                    jack_tokenizer::TokenType::Identifier => {
-                        tokenizer.identifer()?;
-                        todo!()
-                    }
-                    jack_tokenizer::TokenType::IntConst => {
-                        tokenizer.int_val()?;
-                        todo!()
-                    }
-                    jack_tokenizer::TokenType::StringConst => {
-                        tokenizer.string_val()?;
-                        todo!()
-                    }
-                }
-            }
+            tokenized_xml.write_xml(&mut tokenizer)?;
             Ok(())
         })?;
 
-    tokenized_xml.write_end_xml_tag("tokens")?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use std::fs::{self, File};
+    use std::{
+        fs::{self, File},
+        io::Cursor,
+    };
 
     use rand::distr::{Alphanumeric, SampleString};
 
@@ -201,6 +200,25 @@ mod tests {
         test_files
             .iter()
             .try_for_each(|test_file| fs::remove_file(test_file))?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_tokenize_and_write_xml() -> Result<()> {
+        let jack_code = r#"if (x < 0) {
+    // comment
+    let quit = "yes";
+}"#;
+        let mut expect_buf = Cursor::new(Vec::new());
+        let mut tokenizer = JackTokenizer::new(Cursor::new(jack_code.as_bytes()));
+        let mut tokenized_xml_writer = TokenizedXmlWriter::new(&mut expect_buf);
+
+        tokenized_xml_writer.write_xml(&mut tokenizer)?;
+        let expect = String::from_utf8_lossy(&expect_buf.into_inner()).to_string();
+        let actual = "";
+
+        assert_eq!(&expect, actual);
+
         Ok(())
     }
 }

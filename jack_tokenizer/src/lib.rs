@@ -1,35 +1,17 @@
 use anyhow::Result;
-use std::io::{BufReader, Read};
+use std::{
+    io::{BufReader, Read},
+    str::FromStr,
+};
+use strum::IntoEnumIterator;
+use strum_macros::{AsRefStr, EnumIter, EnumString};
 
-const COMMENT_OUT_TOKEN: &str = "//";
-const KEYWORDS: [&str; 21] = [
-    "class",
-    "constructor",
-    "function",
-    "method",
-    "field",
-    "static",
-    "var",
-    "int",
-    "char",
-    "boolean",
-    "void",
-    "true",
-    "false",
-    "null",
-    "this",
-    "let",
-    "do",
-    "if",
-    "else",
-    "while",
-    "return",
-];
+const COMMENT_TOKEN: &str = "//";
 const SYMBOLS: [char; 19] = [
     '{', '}', '(', ')', '[', ']', '.', ',', ';', '+', '-', '*', '/', '&', '|', '<', '>', '=', '~',
 ];
 
-#[derive(Debug,PartialEq)]
+#[derive(Debug, PartialEq, AsRefStr, EnumIter)]
 pub enum TokenType {
     KeyWord,
     Symbol,
@@ -38,7 +20,8 @@ pub enum TokenType {
     StringConst,
 }
 
-#[derive(Debug,PartialEq)]
+#[derive(Debug, PartialEq, AsRefStr, EnumIter, EnumString)]
+#[strum(ascii_case_insensitive)]
 pub enum KeyWord {
     Class,
     Method,
@@ -69,10 +52,10 @@ pub struct JackTokenizer {
 }
 
 impl JackTokenizer {
-    pub fn new<T: Read>(jack_file: T) -> Self {
+    pub fn new<R: Read>(reader: R) -> Self {
         let mut buf = String::new();
-        let mut jack_file = BufReader::new(jack_file);
-        jack_file.read_to_string(&mut buf).unwrap();
+        let mut jack_code = BufReader::new(reader);
+        jack_code.read_to_string(&mut buf).unwrap();
 
         Self {
             tokens: parse_tokens(&buf).unwrap(),
@@ -96,44 +79,63 @@ impl JackTokenizer {
 
     pub fn token_type(&self) -> Result<TokenType> {
         match &self.current_token {
-           Some(t ) if KEYWORDS.iter().any(|k| *k == t) => {
+            Some(t) if KeyWord::iter().any(|k| k.as_ref().to_lowercase() == *t) => {
                 Ok(TokenType::KeyWord)
-           }, 
-           Some(t) if SYMBOLS.iter().any(|s| *s == t.chars().next().unwrap()) => {
+            }
+            Some(t) if SYMBOLS.iter().any(|s| *s == t.chars().next().unwrap()) => {
                 Ok(TokenType::Symbol)
-           },
-           Some(t ) if matches!(t.chars().next().unwrap(), _c @('0'..='9')) => {
+            }
+            Some(t) if matches!(t.chars().next().unwrap(), _c @('0'..='9')) => {
                 Ok(TokenType::IntConst)
-           }
-           Some(t ) if t.chars().next().unwrap() == '"' => {
-                Ok(TokenType::StringConst)
-           },
-           Some(t) if matches!(t.chars().next().unwrap(), _c @('_' | 'a'..'z' | 'A'..'Z')) => {
+            }
+            Some(t) if t.chars().next().unwrap() == '"' => Ok(TokenType::StringConst),
+            Some(t) if matches!(t.chars().next().unwrap(), _c @('_' | 'a'..'z' | 'A'..'Z')) => {
                 Ok(TokenType::Identifier)
-           }
-           None => panic!("curret token is empty"),
-           t =>  panic!("un supported token type: {:?}",t),
+            }
+            None => panic!("curret token is empty"),
+            t => panic!("un supported token type: {:?}", t),
         }
     }
 
     pub fn keyword(&self) -> Result<KeyWord> {
-        todo!()
+        match &self.current_token {
+            Some(token) => match KeyWord::from_str(&token) {
+                Ok(keyword) => Ok(keyword),
+                Err(e) => panic!(
+                    "KeywordEnum parse error: {:?} token: {:?}",
+                    e, self.current_token
+                ),
+            },
+            None => panic!("current token is empty"),
+        }
     }
 
     pub fn symbol(&self) -> Result<String> {
-        todo!()
+        Ok(self.current_token.clone().unwrap())
     }
 
     pub fn identifer(&self) -> Result<String> {
-        todo!()
+        Ok(self.current_token.clone().unwrap())
     }
 
     pub fn int_val(&self) -> Result<u16> {
-        todo!()
+        Ok(self
+            .current_token
+            .clone()
+            .unwrap()
+            .parse::<u16>()
+            .expect("int_val parse failed"))
     }
 
     pub fn string_val(&self) -> Result<String> {
-        todo!()
+        Ok(self
+            .current_token
+            .clone()
+            .unwrap()
+            .as_str()
+            .chars()
+            .filter(|c| *c != '"')
+            .collect())
     }
 }
 
@@ -142,7 +144,7 @@ fn parse_tokens(input: &str) -> Result<Vec<String>> {
 
     let ignore_comment_input = input
         .lines()
-        .filter(|line| !line.trim().starts_with(COMMENT_OUT_TOKEN))
+        .filter(|line| !line.trim().starts_with(COMMENT_TOKEN))
         .collect::<String>();
     let mut input = ignore_comment_input.as_str();
 
@@ -201,6 +203,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn playground() -> Result<()> {
+        TokenType::iter()
+            .for_each(|token_type| println!("{:?}", token_type.as_ref().to_lowercase()));
+        Ok(())
+    }
+
+    #[test]
     fn test_parse_token() {
         let input = r#"if (x < 0) {
     // comment
@@ -232,26 +241,29 @@ mod tests {
 
     #[test]
     fn test_jack_tokenizer() -> Result<()> {
-        let file_content = std::io::Cursor::new(r#"if (x < 0) {
+        let file_content = std::io::Cursor::new(
+            r#"if (x < 0) {
     // comment
     let sign = "negative";
     let sign_2 = "positive";
-}"#.as_bytes());
+}"#
+            .as_bytes(),
+        );
         let mut tokenizer = JackTokenizer::new(file_content);
 
         assert_eq!(tokenizer.current_token.clone(), None);
 
         tokenizer.advance()?;
         assert_eq!(tokenizer.current_token.clone().unwrap(), "if".to_string());
-        assert_eq!(tokenizer.token_type()?,TokenType::KeyWord);
+        assert_eq!(tokenizer.token_type()?, TokenType::KeyWord);
 
         tokenizer.advance()?;
         assert_eq!(tokenizer.current_token.clone().unwrap(), "(".to_string());
-        assert_eq!(tokenizer.token_type()?,TokenType::Symbol);
+        assert_eq!(tokenizer.token_type()?, TokenType::Symbol);
 
         tokenizer.advance()?;
         assert_eq!(tokenizer.current_token.clone().unwrap(), "x".to_string());
-        assert_eq!(tokenizer.token_type()?,TokenType::Identifier);
+        assert_eq!(tokenizer.token_type()?, TokenType::Identifier);
 
         Ok(())
     }
