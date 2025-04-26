@@ -1,0 +1,15 @@
+[package]
+name = "tokenized_xml_writer"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+jack_tokenizer = { path = "../jack_tokenizer" }
+anyhow.workspace = true
+strum.workspace = true
+strum_macros.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true

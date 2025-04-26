@@ -10,7 +10,7 @@ name = "JackAnalyzer"
 path = "src/main.rs"
 
 [workspace]
-members = ["jack_tokenizer","compilation_engine"]
+members = ["jack_tokenizer","compilation_engine", "tokenized_xml_writer"]
 
 [workspace.package]
 edition = "2021"
@@ -20,6 +20,7 @@ license = "MIT"
 [workspace.dependencies]
 jack_tokenizer = {path = "./jack_tokenizer"}
 compilation_engine = {path = "./compilation_engine"}
+tokenized_xml_writer = {path = "./tokenized_xml_writer"} 
 anyhow = "1.0.97"
 rand = "0.9.0"
 strum = "0.27.1"
@@ -27,9 +28,10 @@ strum_macros = "0.27.1"
 pretty_assertions = "1.4.1"
 
 [dependencies]
-anyhow.workspace = true
 jack_tokenizer.workspace = true
 compilation_engine.workspace = true
+tokenized_xml_writer.workspace = true
+anyhow.workspace = true
 strum.workspace = true
 strum_macros.workspace = true
 

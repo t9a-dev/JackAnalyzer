@@ -16,7 +16,9 @@ pub enum TokenType {
     KeyWord,
     Symbol,
     Identifier,
+    #[strum(to_string = "integerConstant")]
     IntConst,
+    #[strum(to_string = "stringConstant")]
     StringConst,
 }
 
