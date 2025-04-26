@@ -38,3 +38,4 @@ strum_macros.workspace = true
 [dev-dependencies]
 rand.workspace = true
 pretty_assertions.workspace = true
+walkdir = "2.5.0"

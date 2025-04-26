@@ -97,7 +97,7 @@ mod tests {
     let quit = "yes";
 }"#;
         let expect_buf = Arc::new(Mutex::new(Cursor::new(Vec::new())));
-        let mut tokenizer = JackTokenizer::new(Cursor::new(jack_code.as_bytes()));
+        let mut tokenizer = JackTokenizer::new(Cursor::new(jack_code.as_bytes()))?;
         let mut tokenized_xml_writer = TokenizedXmlWriter::new(expect_buf.clone());
 
         tokenized_xml_writer.write_xml(&mut tokenizer)?;

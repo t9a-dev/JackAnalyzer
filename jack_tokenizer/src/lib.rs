@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use std::{
     io::{BufReader, Read},
     str::FromStr,
@@ -6,10 +6,21 @@ use std::{
 use strum::IntoEnumIterator;
 use strum_macros::{AsRefStr, EnumIter, EnumString};
 
-const COMMENT_TOKEN: &str = "//";
 const SYMBOLS: [char; 19] = [
     '{', '}', '(', ')', '[', ']', '.', ',', ';', '+', '-', '*', '/', '&', '|', '<', '>', '=', '~',
 ];
+
+macro_rules! number_letter {
+    () => {
+        '0'..='9'
+    };
+}
+
+macro_rules! alphabet_letter {
+    () => {
+        'a'..='z' | 'A'..='Z'
+    };
+}
 
 #[derive(Debug, PartialEq, AsRefStr, EnumIter)]
 pub enum TokenType {
@@ -54,15 +65,15 @@ pub struct JackTokenizer {
 }
 
 impl JackTokenizer {
-    pub fn new<R: Read>(reader: R) -> Self {
+    pub fn new<R: Read>(reader: R) -> Result<Self> {
         let mut buf = String::new();
         let mut jack_code = BufReader::new(reader);
-        jack_code.read_to_string(&mut buf).unwrap();
+        jack_code.read_to_string(&mut buf)?;
 
-        Self {
-            tokens: parse_tokens(&buf).unwrap(),
+        Ok(Self {
+            tokens: parse_tokens(&buf)?,
             current_token: None,
-        }
+        })
     }
 
     pub fn has_more_tokens(&mut self) -> Result<bool> {
@@ -87,11 +98,11 @@ impl JackTokenizer {
             Some(t) if SYMBOLS.iter().any(|s| *s == t.chars().next().unwrap()) => {
                 Ok(TokenType::Symbol)
             }
-            Some(t) if matches!(t.chars().next().unwrap(), _c @('0'..='9')) => {
+            Some(t) if matches!(t.chars().next().unwrap(), _c @(number_letter!())) => {
                 Ok(TokenType::IntConst)
             }
             Some(t) if t.chars().next().unwrap() == '"' => Ok(TokenType::StringConst),
-            Some(t) if matches!(t.chars().next().unwrap(), _c @('_' | 'a'..'z' | 'A'..'Z')) => {
+            Some(t) if matches!(t.chars().next().unwrap(), _c @('_' | alphabet_letter!())) => {
                 Ok(TokenType::Identifier)
             }
             None => panic!("curret token is empty"),
@@ -141,37 +152,49 @@ impl JackTokenizer {
     }
 }
 
-fn parse_tokens(input: &str) -> Result<Vec<String>> {
+fn parse_tokens(mut input: &str) -> Result<Vec<String>> {
     let mut tokens: Vec<String> = Vec::new();
-
-    let ignore_comment_input = input
-        .lines()
-        .filter(|line| !line.trim().starts_with(COMMENT_TOKEN))
-        .collect::<String>();
-    let mut input = ignore_comment_input.as_str();
 
     while input.chars().next().is_some() {
         match input.chars().next() {
+            // comment("//")
+            Some(c) if c == '/' => {
+                let mut chars = input.chars();
+                chars.next();
+                input = chars.as_str();
+                // 次の文字からコメントアウト開始か判定
+                let is_comment_start = matches!(input.chars().next(), Some(_c @ '/'));
+                if is_comment_start {
+                    while !matches!(input.chars().next(), Some(_c @ '\n')){
+                        let mut chars = input.chars();
+                        chars.next();
+                        input = chars.as_str();
+                    }
+                }
+                Ok(())
+            }
             // whitespace
             Some(c) if c.is_whitespace() => {
                 let mut chars = input.chars();
                 chars.next();
                 input = chars.as_str();
+                Ok(())
             }
             // keyword,identifer
-            Some(_c @ ('_' | '"' | 'a'..'z' | 'A'..'Z')) => {
+            Some(_c @ ('_' | alphabet_letter!())) => {
                 let mut chars = input.chars();
                 let mut token = chars.next().unwrap().to_string();
                 input = chars.as_str();
                 while matches!(
                     input.chars().next(),
-                    Some(_c @ ('"' | 'a'..'z' | 'A'..'Z' | '0'..='9' | '_'))
+                    Some(_c @ ('_' | alphabet_letter!() | number_letter!()))
                 ) {
                     let mut chars = input.chars();
                     token += &chars.next().unwrap().to_string();
                     input = chars.as_str();
                 }
                 tokens.push(token);
+                Ok(())
             }
             // symbol
             Some(c) if SYMBOLS.iter().any(|symbol| c == *symbol) => {
@@ -179,22 +202,41 @@ fn parse_tokens(input: &str) -> Result<Vec<String>> {
                 let token = chars.next().unwrap().to_string();
                 input = chars.as_str();
                 tokens.push(token);
+                Ok(())
             }
             // integer
-            Some(_c @ ('0'..='9')) => {
+            Some(_c @ (number_letter!())) => {
                 let mut chars = input.chars();
                 let mut token = chars.next().unwrap().to_string();
                 input = chars.as_str();
-                while matches!(input.chars().next(), Some(_c @ ('0'..='9'))) {
+                while matches!(input.chars().next(), Some(_c @ (number_letter!()))) {
                     let mut chars = input.chars();
                     token += &chars.next().unwrap().to_string();
                     input = chars.as_str();
                 }
                 tokens.push(token);
+                Ok(())
             }
-            None => (),
-            c => panic!("un supported token: {:?}", c),
-        }
+            //stringConst
+            Some(c) if c == '"' => {
+                // '"'を見つけたら次に'"'を見つけるまでの文字をtokenとする
+                let mut chars = input.chars();
+                let mut token = chars.next().unwrap().to_string();
+                input = chars.as_str();
+                while input.chars().next() != Some('"') {
+                    chars = input.chars();
+                    token += &chars.next().unwrap().to_string();
+                    input = chars.as_str();
+                }
+                chars = input.chars();
+                token += &chars.next().unwrap().to_string();
+                input = chars.as_str();
+                tokens.push(token);
+                Ok(())
+            }
+            None => Ok(()),
+            c => Err(anyhow!("un supported token: {:?} input: {:?}", c, input)),
+        }?
     }
 
     Ok(tokens)
@@ -209,6 +251,12 @@ mod tests {
         TokenType::iter()
             .for_each(|token_type| println!("{:?}", token_type.as_ref().to_lowercase()));
         Ok(())
+    }
+    #[test]
+    fn test_parse_token_when_string_const() {
+        let input = r#""negative" "positive""#;
+        let mut actual = vec!["\"positive\"", "\"negative\""];
+        assert_eq!(parse_tokens(input).unwrap().sort(), actual.sort());
     }
 
     #[test]
@@ -251,7 +299,7 @@ mod tests {
 }"#
             .as_bytes(),
         );
-        let mut tokenizer = JackTokenizer::new(file_content);
+        let mut tokenizer = JackTokenizer::new(file_content)?;
 
         assert_eq!(tokenizer.current_token.clone(), None);
 

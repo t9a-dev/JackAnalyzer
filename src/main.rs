@@ -80,7 +80,8 @@ fn jack_analyzer(path_str: &str) -> Result<()> {
     analyze_target_paths
         .iter()
         .try_for_each(|jack_file| -> Result<()> {
-            let mut tokenizer = JackTokenizer::new(File::open(jack_file)?);
+            let mut tokenizer = JackTokenizer::new(File::open(jack_file)?)
+                .expect(&format!("jack_toknizer initialize failed: {:?}", jack_file));
             tokenized_xml.write_xml(&mut tokenizer)?;
             Ok(())
         })?;
@@ -94,10 +95,12 @@ mod tests {
     use std::fs::{self, File};
 
     use rand::distr::{Alphanumeric, SampleString};
+    use walkdir::WalkDir;
 
     use super::*;
 
     const TEST_DIR: &str = "target/test/data";
+    const TEST_JACK_DIR: &str = "test_files";
 
     fn create_test_file(test_dir: Option<&str>, test_file_extension: &str) -> Result<String> {
         let test_dir = test_dir.or(Some("target/test/data")).unwrap();
@@ -107,6 +110,31 @@ mod tests {
         let file_path = Path::new(test_dir).join(&test_file_name);
         File::create(&file_path)?;
         Ok(file_path.to_string_lossy().to_string())
+    }
+
+    fn find_files_with_extension(dir: &Path, extension: &str) -> Result<Vec<String>> {
+        let mut paths: Vec<String> = Vec::new();
+
+        for entry in WalkDir::new(dir)
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_file())
+        {
+            if let Some(ext) = entry.path().extension() {
+                if ext == extension {
+                    paths.push(entry.path().display().to_string());
+                }
+            }
+        }
+
+        Ok(paths)
+    }
+
+    #[test]
+    fn playground() -> Result<()> {
+        let jack_files = find_files_with_extension(Path::new(TEST_JACK_DIR), JACK_FILE_EXTENSION)?;
+        println!("jack files: {:?}", jack_files);
+        Ok(())
     }
 
     #[test]
@@ -126,6 +154,17 @@ mod tests {
         test_files
             .iter()
             .try_for_each(|test_file| fs::remove_file(test_file))?;
+        Ok(())
+    }
+
+    #[test]
+    fn run_analyze() -> Result<()> {
+        let jack_file_paths =
+            find_files_with_extension(Path::new(TEST_JACK_DIR), JACK_FILE_EXTENSION)?;
+        jack_file_paths
+            .iter()
+            .try_for_each(|jack_file_path| jack_analyzer(&jack_file_path))?;
+
         Ok(())
     }
 }
