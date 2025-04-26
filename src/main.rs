@@ -161,6 +161,7 @@ mod tests {
     fn run_analyze() -> Result<()> {
         let jack_file_paths =
             find_files_with_extension(Path::new(TEST_JACK_DIR), JACK_FILE_EXTENSION)?;
+
         jack_file_paths
             .iter()
             .try_for_each(|jack_file_path| jack_analyzer(&jack_file_path))?;

@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use regex::Regex;
 use std::{
     io::{BufReader, Read},
     str::FromStr,
@@ -152,27 +153,15 @@ impl JackTokenizer {
     }
 }
 
-fn parse_tokens(mut input: &str) -> Result<Vec<String>> {
+fn parse_tokens(input: &str) -> Result<Vec<String>> {
     let mut tokens: Vec<String> = Vec::new();
+
+    let ignore_comment_regex = Regex::new(r"//.*(\n|$)|\n?/\*[\s\S]*?\*/\n?")?;
+    let comment_ignored_input = ignore_comment_regex.replace_all(input, "").to_string();
+    let mut input = comment_ignored_input.as_str();
 
     while input.chars().next().is_some() {
         match input.chars().next() {
-            // comment("//")
-            Some(c) if c == '/' => {
-                let mut chars = input.chars();
-                chars.next();
-                input = chars.as_str();
-                // 次の文字からコメントアウト開始か判定
-                let is_comment_start = matches!(input.chars().next(), Some(_c @ '/'));
-                if is_comment_start {
-                    while !matches!(input.chars().next(), Some(_c @ '\n')){
-                        let mut chars = input.chars();
-                        chars.next();
-                        input = chars.as_str();
-                    }
-                }
-                Ok(())
-            }
             // whitespace
             Some(c) if c.is_whitespace() => {
                 let mut chars = input.chars();
@@ -245,11 +234,45 @@ fn parse_tokens(mut input: &str) -> Result<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use regex::Regex;
 
     #[test]
-    fn playground() -> Result<()> {
-        TokenType::iter()
-            .for_each(|token_type| println!("{:?}", token_type.as_ref().to_lowercase()));
+    fn regex_playground() -> Result<()> {
+        let re = Regex::new(r"//.*(\n|$)")?;
+        let result = re.replace("// this comment", "");
+        assert_eq!(result, "");
+
+        let re = Regex::new(r"/\*[\s\S]*?\*/")?;
+        let result = re.replace(
+            "/**
+         * comment 
+         */",
+            "",
+        );
+        assert_eq!(result, "");
+
+        let re = Regex::new(r"/\*[\s\S]*?\*/")?;
+        let result = re.replace(
+            "/*
+         * comment 
+         */",
+            "",
+        );
+        assert_eq!(result, "");
+
+        let re = Regex::new(r"//.*(\n|$)|\n?/\*[\s\S]*?\*/\n?")?;
+        let result = re.replace_all(
+            "/*
+* comment
+*/
+let a = \"hello\";
+// comment 'abc'
+/**
+* comment
+*/",
+            "",
+        );
+        assert_eq!(result, "let a = \"hello\";\n");
         Ok(())
     }
     #[test]
@@ -263,6 +286,42 @@ mod tests {
     fn test_parse_token() {
         let input = r#"if (x < 0) {
     // comment
+    let sign = "negative";
+    let sign_2 = "positive";
+}"#;
+        let actual = vec![
+            "if",
+            "(",
+            "x",
+            "<",
+            "0",
+            ")",
+            "{",
+            "let",
+            "sign",
+            "=",
+            "\"negative\"",
+            ";",
+            "let",
+            "sign_2",
+            "=",
+            "\"positive\"",
+            ";",
+            "}",
+        ];
+        assert_eq!(parse_tokens(input).unwrap(), actual);
+    }
+
+    #[test]
+    fn test_parse_token_when_multi_line_comment() {
+        let input = r#"if (x < 0) {
+    // single line comment
+    /**
+     * multi line comment '1'
+     */
+    /*
+     multi line comment '2'
+     */
     let sign = "negative";
     let sign_2 = "positive";
 }"#;
