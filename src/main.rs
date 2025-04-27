@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use compilation_engine::CompilationEngine;
 use jack_tokenizer::JackTokenizer;
 use tokenized_xml_writer::TokenizedXmlWriter;
 
@@ -61,15 +62,16 @@ fn jack_analyzer(path_str: &str) -> Result<()> {
     analyze_target_paths
         .iter()
         .try_for_each(|jack_file| -> Result<()> {
-            let output_file_path = jack_file
-                .parent() 
-                .unwrap()
-                .join(format!("{}T.{}", jack_file.file_stem().unwrap().to_string_lossy().to_string(), OUTPUT_FILE_EXTENSION));
+            let output_file_path = jack_file.parent().unwrap().join(format!(
+                "{}.{}",
+                jack_file.file_stem().unwrap().to_string_lossy().to_string(),
+                OUTPUT_FILE_EXTENSION
+            ));
             let output_file = Arc::new(Mutex::new(File::create(&output_file_path)?));
-            let mut tokenized_xml = TokenizedXmlWriter::new(output_file);
-            let mut tokenizer = JackTokenizer::new(File::open(jack_file)?)
+            let tokenizer = JackTokenizer::new(File::open(jack_file)?)
                 .expect(&format!("jack_toknizer initialize failed: {:?}", jack_file));
-            tokenized_xml.write_xml(&mut tokenizer)?;
+            let mut compilation_engine = CompilationEngine::new(tokenizer, output_file)?;
+            compilation_engine.compile_class()?;
             Ok(())
         })?;
 
@@ -78,8 +80,13 @@ fn jack_analyzer(path_str: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Ok;
+    use compilation_engine::CompilationEngine;
     use pretty_assertions::assert_eq;
-    use std::fs::{self, File};
+    use std::{
+        fs::{self, File},
+        io::Cursor,
+    };
 
     use rand::distr::{Alphanumeric, SampleString};
     use walkdir::WalkDir;
@@ -145,7 +152,7 @@ mod tests {
     }
 
     #[test]
-    fn run_analyze() -> Result<()> {
+    fn run_analyze_use_tokenized_xml_writer() -> Result<()> {
         let jack_file_paths =
             find_files_with_extension(Path::new(TEST_JACK_DIR), JACK_FILE_EXTENSION)?;
 
@@ -153,6 +160,33 @@ mod tests {
             .iter()
             .try_for_each(|jack_file_path| jack_analyzer(&jack_file_path))?;
 
+        Ok(())
+    }
+
+    #[test]
+    fn run_analyze_use_compilation_engine_when_expression_less_square() -> Result<()> {
+        let jack_file_paths = find_files_with_extension(
+            Path::new(TEST_JACK_DIR)
+                .join("ExpressionLessSquare")
+                .as_path(),
+            JACK_FILE_EXTENSION,
+        )?;
+
+        jack_file_paths.iter().try_for_each(|jack_file_path| {
+            let output = Arc::new(Mutex::new(Cursor::new(Vec::new())));
+            let jack_code = File::open(jack_file_path)?;
+            let tokenizer = JackTokenizer::new(jack_code)?;
+            let mut compilation_engine = CompilationEngine::new(tokenizer, output.clone())?;
+            compilation_engine
+                .compile_class()
+                .expect(&format!("compilation file: {:?}", jack_file_path));
+            let expect = "";
+            let output = output.lock().unwrap();
+            let actual = String::from_utf8_lossy(output.get_ref());
+
+            assert_eq!(expect, actual);
+            Ok(())
+        })?;
         Ok(())
     }
 }

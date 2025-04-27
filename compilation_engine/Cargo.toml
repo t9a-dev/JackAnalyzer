@@ -7,3 +7,7 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+jack_tokenizer.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
