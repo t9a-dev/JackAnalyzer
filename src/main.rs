@@ -58,28 +58,15 @@ fn parse_analyze_target_path(path: &Path) -> Result<Vec<PathBuf>> {
 fn jack_analyzer(path_str: &str) -> Result<()> {
     let path = Path::new(path_str);
     let analyze_target_paths = parse_analyze_target_path(path)?;
-    let output_file_name = if path.is_dir() {
-        path.file_name().unwrap().to_string_lossy().to_string()
-    } else {
-        analyze_target_paths
-            .get(0)
-            .unwrap()
-            .to_path_buf()
-            .file_stem()
-            .unwrap()
-            .to_string_lossy()
-            .to_string()
-    };
-    let output_file_path = path
-        .parent()
-        .unwrap()
-        .join(format!("{}T.{}", output_file_name, OUTPUT_FILE_EXTENSION));
-
-    let output_file = Arc::new(Mutex::new(File::create(&output_file_path)?));
-    let mut tokenized_xml = TokenizedXmlWriter::new(output_file);
     analyze_target_paths
         .iter()
         .try_for_each(|jack_file| -> Result<()> {
+            let output_file_path = jack_file
+                .parent() 
+                .unwrap()
+                .join(format!("{}T.{}", jack_file.file_stem().unwrap().to_string_lossy().to_string(), OUTPUT_FILE_EXTENSION));
+            let output_file = Arc::new(Mutex::new(File::create(&output_file_path)?));
+            let mut tokenized_xml = TokenizedXmlWriter::new(output_file);
             let mut tokenizer = JackTokenizer::new(File::open(jack_file)?)
                 .expect(&format!("jack_toknizer initialize failed: {:?}", jack_file));
             tokenized_xml.write_xml(&mut tokenizer)?;
