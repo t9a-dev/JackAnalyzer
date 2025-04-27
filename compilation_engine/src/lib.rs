@@ -44,6 +44,11 @@ impl CompilationEngine {
             self.process_type()?;
         }
         self.process_identifier()?;
+        // 次のトークンを先読みして","であれば複数varNameが存在するので対応する
+        while self.tokenizer.token_type()? == TokenType::Symbol && self.tokenizer.symbol()? == "," {
+            self.process_token(",")?;
+            self.process_identifier()?;
+        }
         self.process_token(";")?;
         self.write_end_xml_tag(tag_name)?;
 
@@ -86,29 +91,75 @@ impl CompilationEngine {
         }
         self.process_identifier()?;
         self.process_token("(")?;
-        self.compile_parameter_list()?;
+        if self.is_type_token() {
+            self.compile_parameter_list()?;
+        }
         self.process_token(")")?;
         self.compile_subroutine_body()?;
         self.write_end_xml_tag(tag_name)?;
 
         // subroutineDecが複数存在する場合
         if self.tokenizer.token_type()? == TokenType::KeyWord
-            && matches!(self.tokenizer.keyword()?.as_ref().to_lowercase().as_str(), "constructor"|"function"|"method"){
-                self.compile_subroutine()?;
-            }
+            && matches!(
+                self.tokenizer.keyword()?.as_ref().to_lowercase().as_str(),
+                "constructor" | "function" | "method"
+            )
+        {
+            self.compile_subroutine()?;
+        }
         Ok(())
     }
 
     pub fn compile_parameter_list(&mut self) -> Result<()> {
-        todo!()
+        let tag_name = "parameterList";
+        self.write_start_xml_tag(tag_name)?;
+
+        self.process_type()?;
+        self.process_identifier()?;
+        // 次のトークンを先読みして","であれば複数varNameが存在するので対応する
+        while self.tokenizer.token_type()? == TokenType::Symbol && self.tokenizer.symbol()? == "," {
+            self.process_token(",")?;
+            self.process_type()?;
+            self.process_identifier()?;
+        }
+
+        self.write_end_xml_tag(tag_name)?;
+        Ok(())
     }
 
     pub fn compile_subroutine_body(&mut self) -> Result<()> {
-        todo!()
+        let tag_name = "subroutineBody";
+        self.write_start_xml_tag(tag_name)?;
+
+        self.process_token("{")?;
+        if self.tokenizer.token_type()? == TokenType::KeyWord
+            && self.tokenizer.keyword()?.as_ref().to_lowercase().as_str() == "var"
+        {
+            self.compile_var_dec()?;
+        }
+        self.compile_statements()?;
+        self.process_token("}")?;
+
+        self.write_end_xml_tag(tag_name)?;
+        Ok(())
     }
 
     pub fn compile_var_dec(&mut self) -> Result<()> {
-        todo!()
+        let tag_name = "varDec";
+        self.write_start_xml_tag(tag_name)?;
+
+        self.process_token("var")?;
+        self.process_type()?;
+        self.process_identifier()?;
+        // 次のトークンを先読みして","であれば複数varNameが存在するので対応する
+        while self.tokenizer.token_type()? == TokenType::Symbol && self.tokenizer.symbol()? == "," {
+            self.process_token(",")?;
+            self.process_identifier()?;
+        }
+        self.process_token(";")?;
+
+        self.write_end_xml_tag(tag_name)?;
+        Ok(())
     }
 
     pub fn compile_statements(&mut self) -> Result<()> {
@@ -154,6 +205,20 @@ impl CompilationEngine {
 
     pub fn compile_expression_list(&mut self) -> Result<()> {
         todo!()
+    }
+
+    fn is_type_token(&self) -> bool {
+        self.tokenizer.token_type().unwrap() == TokenType::KeyWord
+            || matches!(
+                self.tokenizer
+                    .keyword()
+                    .unwrap()
+                    .as_ref()
+                    .to_lowercase()
+                    .as_str(),
+                "int" | "char" | "boolean"
+            )
+            || self.tokenizer.token_type().unwrap() == TokenType::Identifier
     }
 
     fn process_token(&mut self, token: &str) -> Result<()> {
@@ -209,12 +274,6 @@ impl CompilationEngine {
             ));
         }
         self.tokenizer.advance()?;
-
-        // 次のトークンを先読みして","であれば複数varNameが存在するので対応する
-        if self.tokenizer.token_type()? == TokenType::Symbol && self.tokenizer.symbol()? == "," {
-            self.process_token(",")?;
-            self.process_identifier()?;
-        }
 
         Ok(())
     }
