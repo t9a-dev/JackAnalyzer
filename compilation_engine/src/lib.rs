@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Ok, Result};
-use jack_tokenizer::{JackTokenizer, TokenType};
+use jack_tokenizer::{JackTokenizer, KeyWord, TokenType};
 use std::{
     io::Write,
     sync::{Arc, Mutex},
@@ -107,6 +107,7 @@ impl CompilationEngine {
         {
             self.compile_subroutine()?;
         }
+
         Ok(())
     }
 
@@ -163,19 +164,69 @@ impl CompilationEngine {
     }
 
     pub fn compile_statements(&mut self) -> Result<()> {
-        todo!()
+        if self.tokenizer.token_type()? == TokenType::KeyWord {
+            let tag_name = "statements";
+            self.write_start_xml_tag(tag_name)?;
+
+            match self.tokenizer.keyword()? {
+                jack_tokenizer::KeyWord::Let => self.compile_let()?,
+                jack_tokenizer::KeyWord::If => self.compile_if()?,
+                jack_tokenizer::KeyWord::While => self.compile_while()?,
+                jack_tokenizer::KeyWord::Do => self.compile_do()?,
+                jack_tokenizer::KeyWord::Return => self.compile_return()?,
+                _ => ()
+            }
+
+            self.write_end_xml_tag(tag_name)?;
+        }
+        Ok(())
     }
 
     pub fn compile_let(&mut self) -> Result<()> {
-        todo!()
+        let tag_name = "letStatement";
+        self.write_start_xml_tag(tag_name)?;
+
+        self.process_token("let")?;
+        self.process_identifier()?;
+        if self.tokenizer.token_type()? == TokenType::Symbol && self.tokenizer.symbol()? == "["{
+            self.process_token("[")?;
+            self.compile_expression()?;
+            self.process_token("]")?;
+        }
+        self.process_token("=")?;
+        self.compile_expression()?;
+        self.process_token(";")?;
+
+        self.write_end_xml_tag(tag_name)?;
+        Ok(())
     }
 
     pub fn compile_if(&mut self) -> Result<()> {
-        todo!()
+        let tag_name = "ifStatement";
+        self.write_start_xml_tag(tag_name)?;
+
+        self.process_token("if")?;
+        self.process_token("(")?;
+        self.compile_expression()?;
+        self.process_token(")")?;
+        self.process_token("{")?;
+        self.compile_statements()?;
+        self.process_token("}")?;
+        if self.tokenizer.token_type()? == TokenType::KeyWord && self.tokenizer.keyword()? == KeyWord::Else{
+            self.process_token("else")?;
+            self.process_token("{")?;
+            self.compile_statements()?;
+            self.process_token("}")?;
+        }
+        
+        self.write_end_xml_tag(tag_name)?;
+        Ok(())
     }
 
     pub fn compile_while(&mut self) -> Result<()> {
-        self.write_start_xml_tag("whileStatement")?;
+        let tag_name = "whileStatement";
+        self.write_start_xml_tag(tag_name)?;
+
         self.process_token("while")?;
         self.process_token("(")?;
         self.compile_expression()?;
@@ -183,16 +234,38 @@ impl CompilationEngine {
         self.process_token("{")?;
         self.compile_statements()?;
         self.process_token("}")?;
-        self.write_end_xml_tag("whileStatement")?;
+
+        self.write_end_xml_tag(tag_name)?;
         Ok(())
     }
 
     pub fn compile_do(&mut self) -> Result<()> {
-        todo!()
+        let tag_name = "doStatement";
+        self.write_start_xml_tag(tag_name)?;
+
+        self.process_token("do")?;
+        // subroutine call
+        {
+            todo!()
+        }
+
+        self.write_end_xml_tag(tag_name)?;
+        Ok(())
     }
 
     pub fn compile_return(&mut self) -> Result<()> {
-        todo!()
+        let tag_name = "returnStatement";
+        self.write_start_xml_tag(tag_name)?;
+
+        self.process_token("return")?;
+        // expression
+        {
+            todo!()
+        }
+        self.process_token(";")?;
+
+        self.write_end_xml_tag(tag_name)?;
+        Ok(())
     }
 
     pub fn compile_expression(&mut self) -> Result<()> {
