@@ -30,29 +30,7 @@ impl CompilationEngine {
     }
 
     pub fn compile_class_var_dec(&mut self) -> Result<()> {
-        let tag_name = "classVarDec";
-        self.write_start_xml_tag(tag_name)?;
         // "static"|"field"
-        {
-            self.process_token("static").or_else(|_| {
-                self.process_token("field")?;
-                Ok(())
-            })?;
-        }
-        // type -> "int"|"char"|"boolean"|className
-        {
-            self.process_type()?;
-        }
-        self.process_identifier()?;
-        // 次のトークンを先読みして","であれば複数varNameが存在するので対応する
-        while self.tokenizer.token_type()? == TokenType::Symbol && self.tokenizer.symbol()? == "," {
-            self.process_token(",")?;
-            self.process_identifier()?;
-        }
-        self.process_token(";")?;
-        self.write_end_xml_tag(tag_name)?;
-
-        // classVarDecが複数存在する場合
         if self.tokenizer.token_type()? == TokenType::KeyWord
             && matches!(
                 self.tokenizer
@@ -64,48 +42,86 @@ impl CompilationEngine {
                 "static" | "field"
             )
         {
-            self.compile_class_var_dec()?;
+            let tag_name = "classVarDec";
+            self.write_start_xml_tag(tag_name)?;
+
+            self.process_token("static").or_else(|_| {
+                self.process_token("field")?;
+                Ok(())
+            })?;
+            // type -> "int"|"char"|"boolean"|className
+            {
+                self.process_type()?;
+            }
+            self.process_identifier()?;
+            // 次のトークンを先読みして","であれば複数varNameが存在するので対応する
+            while self.tokenizer.token_type()? == TokenType::Symbol
+                && self.tokenizer.symbol()? == ","
+            {
+                self.process_token(",")?;
+                self.process_identifier()?;
+            }
+            self.process_token(";")?;
+            self.write_end_xml_tag(tag_name)?;
+            // classVarDecが複数存在する場合
+            if self.tokenizer.token_type()? == TokenType::KeyWord
+                && matches!(
+                    self.tokenizer
+                        .keyword()?
+                        .as_ref()
+                        .to_string()
+                        .to_lowercase()
+                        .as_str(),
+                    "static" | "field"
+                )
+            {
+                self.compile_class_var_dec()?;
+            }
         }
 
         Ok(())
     }
 
     pub fn compile_subroutine(&mut self) -> Result<()> {
-        let tag_name = "subroutineDec";
-        self.write_start_xml_tag(tag_name)?;
         // "constructor"|"function"|"method"
-        {
-            self.process_token("constructor").or_else(|_| {
-                self.process_token("function").or_else(|_| {
-                    self.process_token("method")?;
-                    Ok(())
-                })
-            })?;
-        }
-        // "void"|type
-        {
-            self.process_token("void").or_else(|_| {
-                self.process_type()?;
-                Ok(())
-            })?;
-        }
-        self.process_identifier()?;
-        self.process_token("(")?;
-        if self.is_type_token() {
-            self.compile_parameter_list()?;
-        }
-        self.process_token(")")?;
-        self.compile_subroutine_body()?;
-        self.write_end_xml_tag(tag_name)?;
-
-        // subroutineDecが複数存在する場合
         if self.tokenizer.token_type()? == TokenType::KeyWord
             && matches!(
                 self.tokenizer.keyword()?.as_ref().to_lowercase().as_str(),
                 "constructor" | "function" | "method"
             )
         {
-            self.compile_subroutine()?;
+            let tag_name = "subroutineDec";
+            self.write_start_xml_tag(tag_name)?;
+
+            self.process_token("constructor").or_else(|_| {
+                self.process_token("function").or_else(|_| {
+                    self.process_token("method")?;
+                    Ok(())
+                })
+            })?;
+            // "void"|type
+            {
+                self.process_token("void").or_else(|_| {
+                    self.process_type()?;
+                    Ok(())
+                })?;
+            }
+            self.process_identifier()?;
+            self.process_token("(")?;
+            self.compile_parameter_list()?;
+            self.process_token(")")?;
+            self.compile_subroutine_body()?;
+            self.write_end_xml_tag(tag_name)?;
+
+            // subroutineDecが複数存在する場合
+            if self.tokenizer.token_type()? == TokenType::KeyWord
+                && matches!(
+                    self.tokenizer.keyword()?.as_ref().to_lowercase().as_str(),
+                    "constructor" | "function" | "method"
+                )
+            {
+                self.compile_subroutine()?;
+            }
         }
 
         Ok(())
@@ -115,13 +131,23 @@ impl CompilationEngine {
         let tag_name = "parameterList";
         self.write_start_xml_tag(tag_name)?;
 
-        self.process_type()?;
-        self.process_identifier()?;
-        // 次のトークンを先読みして","であれば複数varNameが存在するので対応する
-        while self.tokenizer.token_type()? == TokenType::Symbol && self.tokenizer.symbol()? == "," {
-            self.process_token(",")?;
+        if matches!(
+            self.tokenizer.token_type()?,
+            TokenType::KeyWord | TokenType::Identifier
+        ) && matches!(
+            self.tokenizer.keyword()?.as_ref().to_lowercase().as_str(),
+            "int" | "char" | "boolean"
+        ) {
             self.process_type()?;
             self.process_identifier()?;
+            // 次のトークンを先読みして","であれば複数varNameが存在するので対応する
+            while self.tokenizer.token_type()? == TokenType::Symbol
+                && self.tokenizer.symbol()? == ","
+            {
+                self.process_token(",")?;
+                self.process_type()?;
+                self.process_identifier()?;
+            }
         }
 
         self.write_end_xml_tag(tag_name)?;
@@ -133,7 +159,7 @@ impl CompilationEngine {
         self.write_start_xml_tag(tag_name)?;
 
         self.process_token("{")?;
-        if self.tokenizer.token_type()? == TokenType::KeyWord
+        while self.tokenizer.token_type()? == TokenType::KeyWord
             && self.tokenizer.keyword()?.as_ref().to_lowercase().as_str() == "var"
         {
             self.compile_var_dec()?;
@@ -168,13 +194,20 @@ impl CompilationEngine {
             let tag_name = "statements";
             self.write_start_xml_tag(tag_name)?;
 
-            match self.tokenizer.keyword()? {
-                jack_tokenizer::KeyWord::Let => self.compile_let()?,
-                jack_tokenizer::KeyWord::If => self.compile_if()?,
-                jack_tokenizer::KeyWord::While => self.compile_while()?,
-                jack_tokenizer::KeyWord::Do => self.compile_do()?,
-                jack_tokenizer::KeyWord::Return => self.compile_return()?,
-                _ => ()
+            while self.tokenizer.token_type()? == TokenType::KeyWord
+                && matches!(
+                    self.tokenizer.keyword()?.as_ref().to_lowercase().as_str(),
+                    "let" | "if" | "while" | "do" | "return"
+                )
+            {
+                match self.tokenizer.keyword()? {
+                    jack_tokenizer::KeyWord::Let => self.compile_let()?,
+                    jack_tokenizer::KeyWord::If => self.compile_if()?,
+                    jack_tokenizer::KeyWord::While => self.compile_while()?,
+                    jack_tokenizer::KeyWord::Do => self.compile_do()?,
+                    jack_tokenizer::KeyWord::Return => self.compile_return()?,
+                    _ => (),
+                }
             }
 
             self.write_end_xml_tag(tag_name)?;
@@ -188,7 +221,7 @@ impl CompilationEngine {
 
         self.process_token("let")?;
         self.process_identifier()?;
-        if self.tokenizer.token_type()? == TokenType::Symbol && self.tokenizer.symbol()? == "["{
+        if self.tokenizer.token_type()? == TokenType::Symbol && self.tokenizer.symbol()? == "[" {
             self.process_token("[")?;
             self.compile_expression()?;
             self.process_token("]")?;
@@ -212,13 +245,15 @@ impl CompilationEngine {
         self.process_token("{")?;
         self.compile_statements()?;
         self.process_token("}")?;
-        if self.tokenizer.token_type()? == TokenType::KeyWord && self.tokenizer.keyword()? == KeyWord::Else{
+        if self.tokenizer.token_type()? == TokenType::KeyWord
+            && self.tokenizer.keyword()? == KeyWord::Else
+        {
             self.process_token("else")?;
             self.process_token("{")?;
             self.compile_statements()?;
             self.process_token("}")?;
         }
-        
+
         self.write_end_xml_tag(tag_name)?;
         Ok(())
     }
@@ -246,8 +281,22 @@ impl CompilationEngine {
         self.process_token("do")?;
         // subroutine call
         {
-            todo!()
+            self.process_identifier()?;
+
+            if self.tokenizer.token_type()? == TokenType::Symbol && self.tokenizer.symbol()? == "("
+            {
+                self.process_token("(")?;
+                self.compile_expression_list()?;
+                self.process_token(")")?;
+            } else {
+                self.process_token(".")?;
+                self.process_identifier()?;
+                self.process_token("(")?;
+                self.compile_expression_list()?;
+                self.process_token(")")?;
+            }
         }
+        self.process_token(";")?;
 
         self.write_end_xml_tag(tag_name)?;
         Ok(())
@@ -259,8 +308,8 @@ impl CompilationEngine {
 
         self.process_token("return")?;
         // expression
-        {
-            todo!()
+        if self.has_expression()? {
+            self.compile_expression()?;
         }
         self.process_token(";")?;
 
@@ -269,29 +318,91 @@ impl CompilationEngine {
     }
 
     pub fn compile_expression(&mut self) -> Result<()> {
-        todo!()
+        let tag_name = "expression";
+        self.write_start_xml_tag(tag_name)?;
+
+        self.compile_term()?;
+        while self.tokenizer.token_type()? == TokenType::Symbol
+            && matches!(
+                self.tokenizer.symbol()?.as_str(),
+                "+" | "-" | "*" | "/" | "&" | "|" | "<" | ">" | "="
+            )
+        {
+            self.process_token(self.tokenizer.symbol()?.as_str())?;
+            self.compile_term()?;
+        }
+
+        self.write_end_xml_tag(tag_name)?;
+        Ok(())
     }
 
     pub fn compile_term(&mut self) -> Result<()> {
-        todo!()
+        let tag_name = "term";
+        self.write_start_xml_tag(tag_name)?;
+
+        match self.tokenizer.token_type()? {
+            TokenType::KeyWord => {
+                self.process_token(self.tokenizer.keyword()?.as_ref().to_lowercase().as_str())?;
+            }
+            TokenType::Symbol => {
+                let symbol = self.tokenizer.symbol()?;
+                if symbol == "(" {
+                    self.process_token("(")?;
+                    self.compile_expression()?;
+                    self.process_token(")")?;
+                } else {
+                    self.process_token(&symbol)?;
+                    self.compile_term()?;
+                }
+            }
+            TokenType::Identifier => {
+                self.process_identifier()?;
+                if self.tokenizer.token_type()? == TokenType::Symbol {
+                    match self.tokenizer.symbol()?.as_str() {
+                        "[" => {
+                            self.process_token("[")?;
+                            self.compile_expression()?;
+                            self.process_token("]")?;
+                        }
+                        "(" => {
+                            self.process_token("(")?;
+                            self.compile_expression_list()?;
+                            self.process_token(")")?;
+                        }
+                        "." => {
+                            self.process_token(".")?;
+                            self.process_identifier()?;
+                            self.process_token("(")?;
+                            self.compile_expression_list()?;
+                            self.process_token(")")?;
+                        }
+                        _ => (),
+                    }
+                }
+            }
+            TokenType::IntConst => {
+                self.process_token(self.tokenizer.int_val()?.to_string().as_str())?;
+            }
+            TokenType::StringConst => {
+                self.process_token(self.tokenizer.string_val()?.as_str())?;
+            }
+        }
+
+        self.write_end_xml_tag(tag_name)?;
+        Ok(())
     }
 
     pub fn compile_expression_list(&mut self) -> Result<()> {
-        todo!()
-    }
-
-    fn is_type_token(&self) -> bool {
-        self.tokenizer.token_type().unwrap() == TokenType::KeyWord
-            || matches!(
-                self.tokenizer
-                    .keyword()
-                    .unwrap()
-                    .as_ref()
-                    .to_lowercase()
-                    .as_str(),
-                "int" | "char" | "boolean"
-            )
-            || self.tokenizer.token_type().unwrap() == TokenType::Identifier
+        if self.has_expression()? {
+            self.compile_expression()?;
+            while self.tokenizer.token_type()? == TokenType::Symbol
+                && self.tokenizer.symbol()? == ","
+            {
+                self.process_token(",")?;
+                self.compile_expression()?;
+            }
+        }
+        Ok(())
     }
 
     fn process_token(&mut self, token: &str) -> Result<()> {
@@ -308,23 +419,34 @@ impl CompilationEngine {
             jack_tokenizer::TokenType::IntConst => self.tokenizer.int_val()?.to_string(),
             jack_tokenizer::TokenType::StringConst => self.tokenizer.string_val()?,
         };
-        if current_token == token.to_lowercase() {
-            self.write_xml(
-                &self
-                    .tokenizer
-                    .token_type()?
-                    .as_ref()
-                    .to_string()
-                    .to_lowercase(),
-                &current_token,
-            )?;
-        } else {
-            return Err(anyhow!(
-                "syntax error token: {:?}, current_token: {:?}",
-                token,
-                current_token
-            ));
+        match self.tokenizer.token_type()? {
+            TokenType::IntConst | TokenType::StringConst => {
+                self.write_xml(
+                    &self.tokenizer.token_type()?.as_ref().to_string(),
+                    &current_token,
+                )?;
+            }
+            _ => {
+                if current_token == token.to_lowercase() {
+                    self.write_xml(
+                        &self
+                            .tokenizer
+                            .token_type()?
+                            .as_ref()
+                            .to_string()
+                            .to_lowercase(),
+                        &current_token,
+                    )?;
+                } else {
+                    return Err(anyhow!(
+                        "syntax error token: {:?}, current_token: {:?}",
+                        token,
+                        current_token
+                    ));
+                }
+            }
         }
+
         self.tokenizer.advance()?;
         Ok(())
     }
@@ -361,6 +483,19 @@ impl CompilationEngine {
             })
         })?;
         Ok(())
+    }
+
+    fn has_expression(&self) -> Result<bool> {
+        match self.tokenizer.token_type()? {
+            TokenType::KeyWord => Ok(matches!(
+                self.tokenizer.keyword()?,
+                KeyWord::True | KeyWord::False | KeyWord::Null | KeyWord::This
+            )),
+            TokenType::Symbol => Ok(matches!(self.tokenizer.symbol()?.as_str(), "(" | "~" | "-")),
+            TokenType::Identifier => Ok(true),
+            TokenType::IntConst => Ok(true),
+            TokenType::StringConst => Ok(true),
+        }
     }
 
     fn write_start_xml_tag(&mut self, tag_name: &str) -> Result<()> {
