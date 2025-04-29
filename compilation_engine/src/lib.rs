@@ -190,10 +190,9 @@ impl CompilationEngine {
     }
 
     pub fn compile_statements(&mut self) -> Result<()> {
+        let tag_name = "statements";
+        self.write_start_xml_tag(tag_name)?;
         if self.tokenizer.token_type()? == TokenType::KeyWord {
-            let tag_name = "statements";
-            self.write_start_xml_tag(tag_name)?;
-
             while self.tokenizer.token_type()? == TokenType::KeyWord
                 && matches!(
                     self.tokenizer.keyword()?.as_ref().to_lowercase().as_str(),
@@ -209,9 +208,8 @@ impl CompilationEngine {
                     _ => (),
                 }
             }
-
-            self.write_end_xml_tag(tag_name)?;
         }
+        self.write_end_xml_tag(tag_name)?;
         Ok(())
     }
 
@@ -393,6 +391,8 @@ impl CompilationEngine {
     }
 
     pub fn compile_expression_list(&mut self) -> Result<()> {
+        let tag_name = "expressionList";
+        self.write_start_xml_tag(tag_name)?;
         if self.has_expression()? {
             self.compile_expression()?;
             while self.tokenizer.token_type()? == TokenType::Symbol
@@ -402,6 +402,7 @@ impl CompilationEngine {
                 self.compile_expression()?;
             }
         }
+        self.write_end_xml_tag(tag_name)?;
         Ok(())
     }
 
@@ -435,7 +436,7 @@ impl CompilationEngine {
                             .as_ref()
                             .to_string()
                             .to_lowercase(),
-                        &current_token,
+                        self.escape_xml_symbol(&current_token),
                     )?;
                 } else {
                     return Err(anyhow!(
@@ -495,6 +496,16 @@ impl CompilationEngine {
             TokenType::Identifier => Ok(true),
             TokenType::IntConst => Ok(true),
             TokenType::StringConst => Ok(true),
+        }
+    }
+
+    fn escape_xml_symbol<'a>(&self, v: &'a str) -> &'a str {
+        match v {
+            "<" => "&lt;",
+            ">" => "&gt;",
+            "\"" => "&quot;",
+            "&" => "&amp;",
+            _ => v,
         }
     }
 
